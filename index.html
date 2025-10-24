@@ -5,24 +5,32 @@
   <title>Birlikte Çalışıyoruz</title>
 
   <!-- Firebase klasik bağlantıları -->
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
-<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
-
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
 
   <style>
     body {
       font-family: Arial, sans-serif;
       text-align: center;
       background-color: #f4f4f9;
-      margin-top: 80px;
+      margin-top: 50px;
     }
     .card {
       background: white;
       border-radius: 20px;
       box-shadow: 0 0 20px rgba(0,0,0,0.1);
       display: inline-block;
-      padding: 40px;
-      width: 320px;
+      padding: 30px 40px;
+      width: 350px;
+    }
+    h2 {
+        margin-top: 0;
+    }
+    h4 {
+        color: #2c3e50;
+        background-color: #ecf0f1;
+        padding: 10px;
+        border-radius: 8px;
     }
     button {
       margin: 10px;
@@ -32,23 +40,35 @@
       border: none;
       cursor: pointer;
       color: white;
+      transition: background-color 0.3s;
     }
     .start {
       background: #4CAF50;
     }
+    .start:hover {
+        background: #45a049;
+    }
     .break {
       background: #E53935;
+    }
+    .break:hover {
+        background: #d32f2f;
     }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>Birlikte Çalışıyoruz 💞</h2>
-    <p id="yusufStatus">Yusuf durumu: —</p>
-    <p id="sebihaStatus">Sebiha durumu: —</p>
+    
+    <h4 id="timerDisplay">Birlikte çalışılan süre: Hesaplanıyor...</h4>
+    
+    <p id="yusufStatus">Yusuf: —</p>
+    <!-- DEĞİŞTİRİLDİ: elifStatus -> sebihaStatus ve metin -->
+    <p id="sebihaStatus">Sebiha: —</p>
 
     <h3>Ben kimim?</h3>
     <button onclick="setUser('yusuf')">Yusuf</button>
+    <!-- DEĞİŞTİRİLDİ: setUser('elif') -> setUser('sebiha') ve metin -->
     <button onclick="setUser('sebiha')">Sebiha</button>
 
     <div id="controls" style="display:none;">
@@ -59,7 +79,7 @@
   </div>
 
   <script>
-    // ✅ Senin Firebase ayarların
+    // ✅ Senin Firebase ayarların (Aynı kaldı)
     const firebaseConfig = {
       apiKey: "AIzaSyBWWH-5ca4YrF2hr8LsYC_fa-7ayqnnH8A",
       authDomain: "sevgilimle-koza.firebaseapp.com",
@@ -72,33 +92,104 @@
     };
 
     // Firebase başlat
-    const app = firebase.initializeApp(firebaseConfig);
+    firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
     let currentUser = null;
+    let timerInterval = null;
 
     function setUser(name) {
       currentUser = name;
       document.getElementById('userName').textContent =
+        // DEĞİŞTİRİLDİ: 'Elif olarak girdin' -> 'Sebiha olarak girdin'
         name === 'yusuf' ? 'Yusuf olarak girdin' : 'Sebiha olarak girdin';
       document.getElementById('controls').style.display = 'block';
     }
 
     function setStatus(status) {
       if (!currentUser) return alert("Önce kim olduğunu seç!");
-      db.ref('users/' + currentUser).set({
+      const updates = {};
+      updates['/users/' + currentUser] = {
         status: status,
-        time: new Date().toLocaleTimeString()
-      });
+        time: new Date().toLocaleTimeString('tr-TR')
+      };
+      db.ref().update(updates);
     }
 
-    db.ref('users').on('value', (snapshot) => {
+    db.ref().on('value', (snapshot) => {
       const data = snapshot.val() || {};
-      const yusuf = data.yusuf?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
-      const sebiha = data.sebiha?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
-      document.getElementById('yusufStatus').textContent = "Yusuf: " + yusuf;
-      document.getElementById('sebihaStatus').textContent = "Sebiha: " + sebiha;
+      const users = data.users || {};
+      const session = data.session || {};
+
+      // 1. Kullanıcı durumlarını güncelle
+      const yusufStatusText = users.yusuf?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
+      // DEĞİŞTİRİLDİ: users.elif -> users.sebiha
+      const sebihaStatusText = users.sebiha?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
+      document.getElementById('yusufStatus').textContent = "Yusuf: " + yusufStatusText;
+      // DEĞİŞTİRİLDİ: elifStatus -> sebihaStatus ve metin
+      document.getElementById('sebihaStatus').textContent = "Sebiha: " + sebihaStatusText;
+      
+      // 2. Sayaç mantığını işlet
+      const isYusufWorking = users.yusuf?.status === 'working';
+      // DEĞİŞTİRİLDİ: isElifWorking -> isSebihaWorking, users.elif -> users.sebiha
+      const isSebihaWorking = users.sebiha?.status === 'working';
+      const areBothWorking = isYusufWorking && isSebihaWorking;
+
+      const jointWorkStartTime = session.jointWorkStartTime || null;
+      const totalWorkTimeInSeconds = session.totalWorkTimeInSeconds || 0;
+
+      if (areBothWorking && !jointWorkStartTime) {
+        db.ref('session/jointWorkStartTime').set(firebase.database.ServerValue.TIMESTAMP);
+      }
+
+      if (!areBothWorking && jointWorkStartTime) {
+        const now = Date.now();
+        const elapsed = (now - jointWorkStartTime) / 1000;
+        const newTotal = totalWorkTimeInSeconds + elapsed;
+
+        db.ref('session').update({
+            jointWorkStartTime: null,
+            totalWorkTimeInSeconds: newTotal
+        });
+      }
+      
+      // 3. Ekranda sayacı güncelle
+      updateTimerDisplay(areBothWorking, totalWorkTimeInSeconds, jointWorkStartTime);
     });
+
+    function updateTimerDisplay(isSessionActive, totalSeconds, startTime) {
+        if (timerInterval) {
+            clearInterval(timerInterval);
+        }
+
+        const timerElement = document.getElementById('timerDisplay');
+
+        const formatTime = (seconds) => {
+            seconds = Math.floor(seconds);
+            const d = Math.floor(seconds / (3600*24));
+            const h = Math.floor(seconds % (3600*24) / 3600);
+            const m = Math.floor(seconds % 3600 / 60);
+            const s = Math.floor(seconds % 60);
+
+            let parts = [];
+            if(d > 0) parts.push(d + " gün");
+            if(h > 0) parts.push(h + " saat");
+            if(m > 0) parts.push(m + " dakika");
+            if(s >= 0) parts.push(s + " saniye");
+
+            return parts.length > 0 ? parts.join(' ') : "0 saniye";
+        };
+
+        if (isSessionActive && startTime) {
+            timerInterval = setInterval(() => {
+                const elapsedSinceStart = (Date.now() - startTime) / 1000;
+                const currentTotal = totalSeconds + elapsedSinceStart;
+                timerElement.textContent = "Birlikte çalışılan süre: " + formatTime(currentTotal);
+            }, 1000);
+        } else {
+            timerElement.textContent = "Birlikte çalışılan süre: " + formatTime(totalSeconds);
+        }
+    }
   </script>
 </body>
 </html>
