@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <title>Birlikte Çalışıyoruz</title>
+
+  <!-- Firebase klasik bağlantıları -->
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+<script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+
+
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      background-color: #f4f4f9;
+      margin-top: 80px;
+    }
+    .card {
+      background: white;
+      border-radius: 20px;
+      box-shadow: 0 0 20px rgba(0,0,0,0.1);
+      display: inline-block;
+      padding: 40px;
+      width: 320px;
+    }
+    button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      color: white;
+    }
+    .start {
+      background: #4CAF50;
+    }
+    .break {
+      background: #E53935;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h2>Birlikte Çalışıyoruz 💞</h2>
+    <p id="yusufStatus">Yusuf durumu: —</p>
+    <p id="sebihaStatus">Sebiha durumu: —</p>
+
+    <h3>Ben kimim?</h3>
+    <button onclick="setUser('yusuf')">Yusuf</button>
+    <button onclick="setUser('sebiha')">Sebiha</button>
+
+    <div id="controls" style="display:none;">
+      <h3 id="userName"></h3>
+      <button class="start" onclick="setStatus('working')">Çalışmaya Başla</button>
+      <button class="break" onclick="setStatus('break')">Mola Ver</button>
+    </div>
+  </div>
+
+  <script>
+    // ✅ Senin Firebase ayarların
+    const firebaseConfig = {
+      apiKey: "AIzaSyBWWH-5ca4YrF2hr8LsYC_fa-7ayqnnH8A",
+      authDomain: "sevgilimle-koza.firebaseapp.com",
+      databaseURL: "https://sevgilimle-koza-default-rtdb.firebaseio.com",
+      projectId: "sevgilimle-koza",
+      storageBucket: "sevgilimle-koza.firebasestorage.app",
+      messagingSenderId: "680126325287",
+      appId: "1:680126325287:web:427c51830bbb1a26026402",
+      measurementId: "G-GHF9ZM3PPV"
+    };
+
+    // Firebase başlat
+    const app = firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let currentUser = null;
+
+    function setUser(name) {
+      currentUser = name;
+      document.getElementById('userName').textContent =
+        name === 'yusuf' ? 'Yusuf olarak girdin' : 'Sebiha olarak girdin';
+      document.getElementById('controls').style.display = 'block';
+    }
+
+    function setStatus(status) {
+      if (!currentUser) return alert("Önce kim olduğunu seç!");
+      db.ref('users/' + currentUser).set({
+        status: status,
+        time: new Date().toLocaleTimeString()
+      });
+    }
+
+    db.ref('users').on('value', (snapshot) => {
+      const data = snapshot.val() || {};
+      const yusuf = data.yusuf?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
+      const sebiha = data.sebiha?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
+      document.getElementById('yusufStatus').textContent = "Yusuf: " + yusuf;
+      document.getElementById('sebihaStatus').textContent = "Sebiha: " + elif;
+    });
+  </script>
+</body>
+</html>
