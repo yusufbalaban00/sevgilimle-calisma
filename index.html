@@ -23,8 +23,17 @@
       padding: 30px 40px;
       width: 350px;
     }
+    .profile-picture {
+      width: 150px;
+      height: 150px;
+      border-radius: 50%;
+      object-fit: cover;
+      margin-bottom: 15px;
+      border: 4px solid #f0f0f0;
+    }
     h2 {
         margin-top: 0;
+        margin-bottom: 15px;
     }
     h4 {
         color: #2c3e50;
@@ -42,33 +51,26 @@
       color: white;
       transition: background-color 0.3s;
     }
-    .start {
-      background: #4CAF50;
-    }
-    .start:hover {
-        background: #45a049;
-    }
-    .break {
-      background: #E53935;
-    }
-    .break:hover {
-        background: #d32f2f;
-    }
+    .start { background: #4CAF50; }
+    .start:hover { background: #45a049; }
+    .break { background: #E53935; }
+    .break:hover { background: #d32f2f; }
   </style>
 </head>
 <body>
   <div class="card">
     <h2>Birlikte Çalışıyoruz 💞</h2>
     
-    <h4 id="timerDisplay">Birlikte çalışılan süre: Hesaplanıyor...</h4>
+    <img src="bizim-resim.jpg" alt="Yusuf ve Sebiha fotoğrafı" class="profile-picture">
+
+    <!-- DEĞİŞTİRİLDİ: Metin güncellendi -->
+    <h4 id="timerDisplay">Bugün birlikte çalışılan süre: Hesaplanıyor...</h4>
     
     <p id="yusufStatus">Yusuf: —</p>
-    <!-- DEĞİŞTİRİLDİ: elifStatus -> sebihaStatus ve metin -->
     <p id="sebihaStatus">Sebiha: —</p>
 
     <h3>Ben kimim?</h3>
     <button onclick="setUser('yusuf')">Yusuf</button>
-    <!-- DEĞİŞTİRİLDİ: setUser('elif') -> setUser('sebiha') ve metin -->
     <button onclick="setUser('sebiha')">Sebiha</button>
 
     <div id="controls" style="display:none;">
@@ -91,17 +93,26 @@
       measurementId: "G-GHF9ZM3PPV"
     };
 
-    // Firebase başlat
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
     let currentUser = null;
     let timerInterval = null;
 
+    // --- YENİ FONKSİYON ---
+    // Bugünün tarihini YYYY-MM-DD formatında almak için bir yardımcı fonksiyon
+    function getTodayDateString() {
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+    // --- BİTTİ ---
+
     function setUser(name) {
       currentUser = name;
       document.getElementById('userName').textContent =
-        // DEĞİŞTİRİLDİ: 'Elif olarak girdin' -> 'Sebiha olarak girdin'
         name === 'yusuf' ? 'Yusuf olarak girdin' : 'Sebiha olarak girdin';
       document.getElementById('controls').style.display = 'block';
     }
@@ -119,78 +130,93 @@
     db.ref().on('value', (snapshot) => {
       const data = snapshot.val() || {};
       const users = data.users || {};
-      const session = data.session || {};
+      let session = data.session || {};
 
-      // 1. Kullanıcı durumlarını güncelle
+      // --- YENİ GÜNLÜK SIFIRLAMA KONTROLÜ ---
+      const todayString = getTodayDateString();
+      const lastRecordedDate = session.date || todayString;
+
+      // Eğer kaydedilen son tarih bugünün tarihi değilse, her şeyi sıfırla
+      if (lastRecordedDate !== todayString) {
+        const resetSession = {
+          date: todayString,
+          dailyTotalWorkTimeInSeconds: 0,
+          jointWorkStartTime: null
+        };
+        db.ref('session').set(resetSession);
+        // Firebase'e yazdıktan sonra listener yeniden tetikleneceği için,
+        // eski veriyle devam etmemek için işlemi burada durduruyoruz.
+        return; 
+      }
+      // --- KONTROL BİTTİ ---
+      
       const yusufStatusText = users.yusuf?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
-      // DEĞİŞTİRİLDİ: users.elif -> users.sebiha
       const sebihaStatusText = users.sebiha?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
       document.getElementById('yusufStatus').textContent = "Yusuf: " + yusufStatusText;
-      // DEĞİŞTİRİLDİ: elifStatus -> sebihaStatus ve metin
       document.getElementById('sebihaStatus').textContent = "Sebiha: " + sebihaStatusText;
       
-      // 2. Sayaç mantığını işlet
       const isYusufWorking = users.yusuf?.status === 'working';
-      // DEĞİŞTİRİLDİ: isElifWorking -> isSebihaWorking, users.elif -> users.sebiha
       const isSebihaWorking = users.sebiha?.status === 'working';
       const areBothWorking = isYusufWorking && isSebihaWorking;
-
+      
+      // DEĞİŞTİRİLDİ: totalWorkTimeInSeconds -> dailyTotalWorkTimeInSeconds
       const jointWorkStartTime = session.jointWorkStartTime || null;
-      const totalWorkTimeInSeconds = session.totalWorkTimeInSeconds || 0;
+      const dailyTotalWorkTimeInSeconds = session.dailyTotalWorkTimeInSeconds || 0;
 
       if (areBothWorking && !jointWorkStartTime) {
-        db.ref('session/jointWorkStartTime').set(firebase.database.ServerValue.TIMESTAMP);
+        // İkiniz de çalışmaya başladığında hem başlangıç saatini hem de tarihi kaydet
+        db.ref('session').update({
+            jointWorkStartTime: firebase.database.ServerValue.TIMESTAMP,
+            date: todayString // Tarihi de güncel tut
+        });
       }
 
       if (!areBothWorking && jointWorkStartTime) {
         const now = Date.now();
         const elapsed = (now - jointWorkStartTime) / 1000;
-        const newTotal = totalWorkTimeInSeconds + elapsed;
+        const newTotal = dailyTotalWorkTimeInSeconds + elapsed;
 
         db.ref('session').update({
             jointWorkStartTime: null,
-            totalWorkTimeInSeconds: newTotal
+            dailyTotalWorkTimeInSeconds: newTotal,
+            date: todayString // Tarihi de güncel tut
         });
       }
       
-      // 3. Ekranda sayacı güncelle
-      updateTimerDisplay(areBothWorking, totalWorkTimeInSeconds, jointWorkStartTime);
+      updateTimerDisplay(areBothWorking, dailyTotalWorkTimeInSeconds, jointWorkStartTime);
     });
 
-    function updateTimerDisplay(isSessionActive, totalSeconds, startTime) {
-        if (timerInterval) {
-            clearInterval(timerInterval);
-        }
-
+    // DEĞİŞTİRİLDİ: totalSeconds -> dailyTotalSeconds
+    function updateTimerDisplay(isSessionActive, dailyTotalSeconds, startTime) {
+        if (timerInterval) clearInterval(timerInterval);
         const timerElement = document.getElementById('timerDisplay');
-
         const formatTime = (seconds) => {
             seconds = Math.floor(seconds);
             const d = Math.floor(seconds / (3600*24));
             const h = Math.floor(seconds % (3600*24) / 3600);
             const m = Math.floor(seconds % 3600 / 60);
             const s = Math.floor(seconds % 60);
-
             let parts = [];
             if(d > 0) parts.push(d + " gün");
             if(h > 0) parts.push(h + " saat");
             if(m > 0) parts.push(m + " dakika");
             if(s >= 0) parts.push(s + " saniye");
-
             return parts.length > 0 ? parts.join(' ') : "0 saniye";
         };
-
         if (isSessionActive && startTime) {
             timerInterval = setInterval(() => {
                 const elapsedSinceStart = (Date.now() - startTime) / 1000;
-                const currentTotal = totalSeconds + elapsedSinceStart;
-                timerElement.textContent = "Birlikte çalışılan süre: " + formatTime(currentTotal);
+                const currentTotal = dailyTotalSeconds + elapsedSinceStart;
+                // DEĞİŞTİRİLDİ: Metin güncellendi
+                timerElement.textContent = "Bugün birlikte çalışılan süre: " + formatTime(currentTotal);
             }, 1000);
         } else {
-            timerElement.textContent = "Birlikte çalışılan süre: " + formatTime(totalSeconds);
+            // DEĞİŞTİRİLDİ: Metin güncellendi
+            timerElement.textContent = "Bugün birlikte çalışılan süre: " + formatTime(dailyTotalSeconds);
         }
     }
   </script>
 </body>
 </html>
+
 
