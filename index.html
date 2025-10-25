@@ -4,16 +4,19 @@
   <meta charset="UTF-8">
   <title>Birlikte Çalışıyoruz</title>
 
-  <!-- Firebase klasik bağlantıları -->
+  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-database-compat.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
   <style>
     body {
       font-family: Arial, sans-serif;
       text-align: center;
       background-color: #f4f4f9;
-      margin-top: 50px;
+      margin-top: 30px;
     }
     .card {
       background: white;
@@ -21,25 +24,15 @@
       box-shadow: 0 0 20px rgba(0,0,0,0.1);
       display: inline-block;
       padding: 30px 40px;
-      width: 350px;
+      width: 370px;
+      margin-bottom: 30px;
     }
-    .profile-picture {
-      width: 150px;
-      height: 150px;
-      border-radius: 50%;
-      object-fit: cover;
-      margin-bottom: 15px;
-      border: 4px solid #f0f0f0;
-    }
-    h2 {
-        margin-top: 0;
-        margin-bottom: 15px;
-    }
-    h4 {
-        color: #2c3e50;
-        background-color: #ecf0f1;
-        padding: 10px;
-        border-radius: 8px;
+    canvas {
+      background: white;
+      border-radius: 15px;
+      padding: 15px;
+      box-shadow: 0 0 15px rgba(0,0,0,0.1);
+      margin-top: 30px;
     }
     button {
       margin: 10px;
@@ -60,12 +53,12 @@
 <body>
   <div class="card">
     <h2>Birlikte Çalışıyoruz 💞</h2>
-    
-    <img src="bizim-resim.jpg" alt="Yusuf ve Sebiha fotoğrafı" class="profile-picture">
+    <img src="bizim-resim.jpg" alt="Yusuf ve Sebiha fotoğrafı" style="width:150px;height:150px;border-radius:50%;border:4px solid #f0f0f0;object-fit:cover;margin-bottom:10px;">
 
-    <!-- DEĞİŞTİRİLDİ: Metin güncellendi -->
-    <h4 id="timerDisplay">Bugün birlikte çalışılan süre: Hesaplanıyor...</h4>
-    
+    <h4 id="jointTimer">Bugün birlikte çalışılan süre: Hesaplanıyor...</h4>
+    <h4 id="yusufTimer">Yusuf'un bugünkü çalışma süresi: Hesaplanıyor...</h4>
+    <h4 id="sebihaTimer">Sebiha'nın bugünkü çalışma süresi: Hesaplanıyor...</h4>
+
     <p id="yusufStatus">Yusuf: —</p>
     <p id="sebihaStatus">Sebiha: —</p>
 
@@ -80,8 +73,16 @@
     </div>
   </div>
 
+  <!-- Grafikler -->
+  <div>
+    <h2>📊 Haftalık Çalışma Grafiği</h2>
+    <canvas id="weeklyChart" width="400" height="200"></canvas>
+
+    <h2>📅 Aylık Çalışma Grafiği</h2>
+    <canvas id="monthlyChart" width="400" height="200"></canvas>
+  </div>
+
   <script>
-    // ✅ Senin Firebase ayarların (Aynı kaldı)
     const firebaseConfig = {
       apiKey: "AIzaSyBWWH-5ca4YrF2hr8LsYC_fa-7ayqnnH8A",
       authDomain: "sevgilimle-koza.firebaseapp.com",
@@ -92,129 +93,172 @@
       appId: "1:680126325287:web:427c51830bbb1a26026402",
       measurementId: "G-GHF9ZM3PPV"
     };
-
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
     let currentUser = null;
     let timerInterval = null;
 
-    // --- YENİ FONKSİYON ---
-    // Bugünün tarihini YYYY-MM-DD formatında almak için bir yardımcı fonksiyon
     function getTodayDateString() {
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      return `${year}-${month}-${day}`;
+      const t = new Date();
+      return t.toISOString().slice(0,10);
     }
-    // --- BİTTİ ---
 
     function setUser(name) {
       currentUser = name;
-      document.getElementById('userName').textContent =
-        name === 'yusuf' ? 'Yusuf olarak girdin' : 'Sebiha olarak girdin';
       document.getElementById('controls').style.display = 'block';
+      document.getElementById('userName').textContent = name === 'yusuf' ? 'Yusuf olarak girdin' : 'Sebiha olarak girdin';
     }
 
     function setStatus(status) {
       if (!currentUser) return alert("Önce kim olduğunu seç!");
-      const updates = {};
-      updates['/users/' + currentUser] = {
-        status: status,
+      db.ref('users/' + currentUser).set({
+        status,
         time: new Date().toLocaleTimeString('tr-TR')
-      };
-      db.ref().update(updates);
+      });
     }
 
-    db.ref().on('value', (snapshot) => {
-      const data = snapshot.val() || {};
+    db.ref().on('value', (snap) => {
+      const data = snap.val() || {};
       const users = data.users || {};
       let session = data.session || {};
+      const today = getTodayDateString();
 
-      // --- YENİ GÜNLÜK SIFIRLAMA KONTROLÜ ---
-      const todayString = getTodayDateString();
-      const lastRecordedDate = session.date || todayString;
-
-      // Eğer kaydedilen son tarih bugünün tarihi değilse, her şeyi sıfırla
-      if (lastRecordedDate !== todayString) {
-        const resetSession = {
-          date: todayString,
+      if (session.date && session.date !== today) {
+        // 🔁 Gün değişti → veriyi /history içine yaz
+        db.ref('history/' + session.date).set({
+          yusufTotal: session.yusufTotal || 0,
+          sebihaTotal: session.sebihaTotal || 0,
+          jointTotal: session.dailyTotalWorkTimeInSeconds || 0
+        });
+        // Günlük sıfırlama
+        db.ref('session').set({
+          date: today,
           dailyTotalWorkTimeInSeconds: 0,
-          jointWorkStartTime: null
-        };
-        db.ref('session').set(resetSession);
-        // Firebase'e yazdıktan sonra listener yeniden tetikleneceği için,
-        // eski veriyle devam etmemek için işlemi burada durduruyoruz.
-        return; 
+          jointWorkStartTime: null,
+          yusufTotal: 0,
+          sebihaTotal: 0,
+          yusufStart: null,
+          sebihaStart: null
+        });
+        return;
       }
-      // --- KONTROL BİTTİ ---
-      
-      const yusufStatusText = users.yusuf?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
-      const sebihaStatusText = users.sebiha?.status === 'working' ? 'Çalışıyor ⏳' : 'Mola ☕';
-      document.getElementById('yusufStatus').textContent = "Yusuf: " + yusufStatusText;
-      document.getElementById('sebihaStatus').textContent = "Sebiha: " + sebihaStatusText;
-      
+
       const isYusufWorking = users.yusuf?.status === 'working';
       const isSebihaWorking = users.sebiha?.status === 'working';
       const areBothWorking = isYusufWorking && isSebihaWorking;
-      
-      // DEĞİŞTİRİLDİ: totalWorkTimeInSeconds -> dailyTotalWorkTimeInSeconds
-      const jointWorkStartTime = session.jointWorkStartTime || null;
-      const dailyTotalWorkTimeInSeconds = session.dailyTotalWorkTimeInSeconds || 0;
 
-      if (areBothWorking && !jointWorkStartTime) {
-        // İkiniz de çalışmaya başladığında hem başlangıç saatini hem de tarihi kaydet
-        db.ref('session').update({
-            jointWorkStartTime: firebase.database.ServerValue.TIMESTAMP,
-            date: todayString // Tarihi de güncel tut
-        });
+      document.getElementById('yusufStatus').textContent = "Yusuf: " + (isYusufWorking ? "Çalışıyor ⏳" : "Mola ☕");
+      document.getElementById('sebihaStatus').textContent = "Sebiha: " + (isSebihaWorking ? "Çalışıyor ⏳" : "Mola ☕");
+
+      const now = Date.now();
+
+      let {
+        jointWorkStartTime,
+        dailyTotalWorkTimeInSeconds = 0,
+        yusufStart,
+        sebihaStart,
+        yusufTotal = 0,
+        sebihaTotal = 0
+      } = session;
+
+      // Kişisel çalışma güncellemeleri
+      if (isYusufWorking && !yusufStart) db.ref('session/yusufStart').set(firebase.database.ServerValue.TIMESTAMP);
+      if (!isYusufWorking && yusufStart) {
+        const elapsed = (now - yusufStart) / 1000;
+        db.ref('session').update({ yusufStart: null, yusufTotal: yusufTotal + elapsed });
       }
 
+      if (isSebihaWorking && !sebihaStart) db.ref('session/sebihaStart').set(firebase.database.ServerValue.TIMESTAMP);
+      if (!isSebihaWorking && sebihaStart) {
+        const elapsed = (now - sebihaStart) / 1000;
+        db.ref('session').update({ sebihaStart: null, sebihaTotal: sebihaTotal + elapsed });
+      }
+
+      // Ortak çalışma güncellemeleri
+      if (areBothWorking && !jointWorkStartTime)
+        db.ref('session/jointWorkStartTime').set(firebase.database.ServerValue.TIMESTAMP);
       if (!areBothWorking && jointWorkStartTime) {
-        const now = Date.now();
         const elapsed = (now - jointWorkStartTime) / 1000;
-        const newTotal = dailyTotalWorkTimeInSeconds + elapsed;
-
         db.ref('session').update({
-            jointWorkStartTime: null,
-            dailyTotalWorkTimeInSeconds: newTotal,
-            date: todayString // Tarihi de güncel tut
+          jointWorkStartTime: null,
+          dailyTotalWorkTimeInSeconds: dailyTotalWorkTimeInSeconds + elapsed
         });
       }
-      
-      updateTimerDisplay(areBothWorking, dailyTotalWorkTimeInSeconds, jointWorkStartTime);
+
+      updateTimers({ areBothWorking, jointWorkStartTime, dailyTotalWorkTimeInSeconds, yusufStart, sebihaStart, yusufTotal, sebihaTotal });
     });
 
-    // DEĞİŞTİRİLDİ: totalSeconds -> dailyTotalSeconds
-    function updateTimerDisplay(isSessionActive, dailyTotalSeconds, startTime) {
-        if (timerInterval) clearInterval(timerInterval);
-        const timerElement = document.getElementById('timerDisplay');
-        const formatTime = (seconds) => {
-            seconds = Math.floor(seconds);
-            const d = Math.floor(seconds / (3600*24));
-            const h = Math.floor(seconds % (3600*24) / 3600);
-            const m = Math.floor(seconds % 3600 / 60);
-            const s = Math.floor(seconds % 60);
-            let parts = [];
-            if(d > 0) parts.push(d + " gün");
-            if(h > 0) parts.push(h + " saat");
-            if(m > 0) parts.push(m + " dakika");
-            if(s >= 0) parts.push(s + " saniye");
-            return parts.length > 0 ? parts.join(' ') : "0 saniye";
-        };
-        if (isSessionActive && startTime) {
-            timerInterval = setInterval(() => {
-                const elapsedSinceStart = (Date.now() - startTime) / 1000;
-                const currentTotal = dailyTotalSeconds + elapsedSinceStart;
-                // DEĞİŞTİRİLDİ: Metin güncellendi
-                timerElement.textContent = "Bugün birlikte çalışılan süre: " + formatTime(currentTotal);
-            }, 1000);
-        } else {
-            // DEĞİŞTİRİLDİ: Metin güncellendi
-            timerElement.textContent = "Bugün birlikte çalışılan süre: " + formatTime(dailyTotalSeconds);
-        }
+    function updateTimers({ areBothWorking, jointWorkStartTime, dailyTotalWorkTimeInSeconds, yusufStart, sebihaStart, yusufTotal, sebihaTotal }) {
+      if (timerInterval) clearInterval(timerInterval);
+
+      const formatTime = (sec) => {
+        sec = Math.floor(sec);
+        const h = Math.floor(sec / 3600);
+        const m = Math.floor((sec % 3600) / 60);
+        const s = sec % 60;
+        return `${h ? h+'s ' : ''}${m ? m+'d ' : ''}${s}s`;
+      };
+
+      timerInterval = setInterval(() => {
+        const now = Date.now();
+        let joint = dailyTotalWorkTimeInSeconds;
+        let yusuf = yusufTotal;
+        let sebiha = sebihaTotal;
+
+        if (areBothWorking && jointWorkStartTime) joint += (now - jointWorkStartTime) / 1000;
+        if (yusufStart) yusuf += (now - yusufStart) / 1000;
+        if (sebihaStart) sebiha += (now - sebihaStart) / 1000;
+
+        document.getElementById('jointTimer').textContent = "Bugün birlikte çalışılan süre: " + formatTime(joint);
+        document.getElementById('yusufTimer').textContent = "Yusuf'un bugünkü çalışma süresi: " + formatTime(yusuf);
+        document.getElementById('sebihaTimer').textContent = "Sebiha'nın bugünkü çalışma süresi: " + formatTime(sebiha);
+      }, 1000);
     }
+
+    // 🔢 Grafik fonksiyonu
+    function renderCharts(history) {
+      const dates = Object.keys(history).sort();
+      const yusufData = dates.map(d => history[d].yusufTotal / 3600);
+      const sebihaData = dates.map(d => history[d].sebihaTotal / 3600);
+      const jointData = dates.map(d => history[d].jointTotal / 3600);
+
+      // Haftalık
+      const last7 = dates.slice(-7);
+      const weekly = new Chart(document.getElementById('weeklyChart'), {
+        type: 'bar',
+        data: {
+          labels: last7,
+          datasets: [
+            { label: 'Yusuf', data: last7.map(d => history[d].yusufTotal / 3600), backgroundColor: '#4CAF50' },
+            { label: 'Sebiha', data: last7.map(d => history[d].sebihaTotal / 3600), backgroundColor: '#E91E63' },
+            { label: 'Birlikte', data: last7.map(d => history[d].jointTotal / 3600), backgroundColor: '#3F51B5' },
+          ]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'Saat' } } } }
+      });
+
+      // Aylık
+      const last30 = dates.slice(-30);
+      const monthly = new Chart(document.getElementById('monthlyChart'), {
+        type: 'bar',
+        data: {
+          labels: last30,
+          datasets: [
+            { label: 'Yusuf', data: last30.map(d => history[d].yusufTotal / 3600), backgroundColor: '#4CAF50' },
+            { label: 'Sebiha', data: last30.map(d => history[d].sebihaTotal / 3600), backgroundColor: '#E91E63' },
+            { label: 'Birlikte', data: last30.map(d => history[d].jointTotal / 3600), backgroundColor: '#3F51B5' },
+          ]
+        },
+        options: { responsive: true, scales: { y: { beginAtZero: true, title: { display: true, text: 'Saat' } } } }
+      });
+    }
+
+    // 🔄 Grafikleri yükle
+    db.ref('history').on('value', (snap) => {
+      const history = snap.val() || {};
+      if (Object.keys(history).length > 0) renderCharts(history);
+    });
   </script>
 </body>
 </html>
