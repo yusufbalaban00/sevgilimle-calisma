@@ -260,7 +260,56 @@
       if (Object.keys(history).length > 0) renderCharts(history);
     });
   </script>
+  
+  
+<!-- 🔹 GÜNLÜK ÇALIŞMA KAYIT SİSTEMİ EKLENTİSİ -->
+<script>
+  // Günlük çalışma süresini history altına kaydeden fonksiyon
+  function saveDailyWorkToHistory(yusufSeconds, sebihaSeconds, togetherSeconds) {
+    const todayString = getTodayDateString();
+    const ref = db.ref("history/" + todayString);
+
+    ref.set({
+      yusuf: yusufSeconds,
+      sebiha: sebihaSeconds,
+      together: togetherSeconds
+    });
+  }
+
+  // --- Gün sonu veya oturum bittiğinde çağrılacak ---
+  // Örnek: Ortak çalışma bittiğinde her iki kişinin toplam süresini kaydet
+  function endOfDaySave() {
+    db.ref("users").once("value").then(snapshot => {
+      const users = snapshot.val() || {};
+      const yusuf = users.yusuf?.totalSeconds || 0;
+      const sebiha = users.sebiha?.totalSeconds || 0;
+
+      db.ref("session").once("value").then(sessionSnap => {
+        const session = sessionSnap.val() || {};
+        const together = session.dailyTotalWorkTimeInSeconds || 0;
+
+        saveDailyWorkToHistory(yusuf, sebiha, together);
+        console.log("✅ Günlük çalışma geçmişe kaydedildi:", getTodayDateString());
+      });
+    });
+  }
+
+  // --- Her gece 23:59'da otomatik kayıt ---
+  function scheduleDailySave() {
+    const now = new Date();
+    const millisTillMidnight =
+      new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 5, 0) - now;
+    setTimeout(() => {
+      endOfDaySave();
+      scheduleDailySave(); // sonraki gün için tekrar kur
+    }, millisTillMidnight);
+  }
+
+  scheduleDailySave();
+</script>
+
 </body>
 </html>
+
 
 
